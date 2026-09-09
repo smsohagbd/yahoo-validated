@@ -5,10 +5,13 @@ import { metrics } from './metrics.js';
 import { proxyPool } from './proxy.js';
 import { RateLimiter, clientIp } from './rateLimit.js';
 import { checkDashboardLogin, clearSessionCookie, requireDashboard, sessionUser, setSessionCookie } from './session.js';
+import { tokenStore } from './tokens.js';
+import { runVerify, splitEmails } from './verify.js';
 
 const loginLimit = new RateLimiter({ windowMs: 10 * 60 * 1000, max: 8 });
+const BULK_MAX = 50;
 
-export function setupDashboard(app, { pool }) {
+export function setupDashboard(app, { pool, finish }) {
   const indexFile = path.join(config.publicDir, 'index.html');
 
   app.get(['/', '/dashboard', '/dashboard/'], (_req, res) => {
@@ -44,12 +47,18 @@ export function setupDashboard(app, { pool }) {
   });
 
   app.get('/dashboard/api/overview', requireDashboard, (_req, res) => {
+    const host = config.serverIp || '127.0.0.1';
     const snap = metrics.snapshot();
     res.json({
       ok: true,
       metrics: snap,
       pool: pool.stats(),
       proxies: proxyPool.stats(),
+      public: {
+        ip: host,
+        verify: `http://${host}:${config.port}/verify`,
+        dashboard: `http://${host}:${config.port}/dashboard`,
+      },
       rateLimit: {
         max: config.rateLimitMax,
         windowMs: config.rateLimitWindowMs,
@@ -63,6 +72,54 @@ export function setupDashboard(app, { pool }) {
     const limit = Math.min(500, Number.parseInt(String(req.query.limit || '200'), 10) || 200);
     const level = String(req.query.level || 'all');
     res.json({ ok: true, logs: recentLogs(limit, level).reverse() });
+  });
+
+  app.post('/dashboard/api/test', requireDashboard, async (req, res) => {
+    const email = req.body?.email || req.body?.address || '';
+    const body = await runVerify(pool, email);
+    finish(res, req, body);
+  });
+
+  app.post('/dashboard/api/test/bulk', requireDashboard, async (req, res) => {
+    const emails = splitEmails(req.body?.emails || req.body?.lines || '').slice(0, BULK_MAX);
+    if (!emails.length) {
+      return res.json({ ok: false, message: 'No email addresses provided', results: [] });
+    }
+    const results = [];
+    for (const email of emails) {
+      const body = await runVerify(pool, email);
+      metrics.record({ ...body, ip: clientIp(req) });
+      if (body.fail) {
+        logger.warn('verify fail', { error: body.error, email: body.email, source: 'dashboard-bulk' });
+      } else {
+        logger.info('verify ok', { email: body.email, validate: body.validate, source: 'dashboard-bulk' });
+      }
+      results.push(body);
+    }
+    res.json({ ok: true, count: results.length, results });
+  });
+
+  app.get('/dashboard/api/tokens', requireDashboard, (_req, res) => {
+    res.json({ ok: true, items: tokenStore.list() });
+  });
+
+  app.post('/dashboard/api/tokens', requireDashboard, (req, res) => {
+    const created = tokenStore.create(req.body?.name || 'api');
+    res.json({
+      ok: true,
+      ...created,
+      message: 'Copy this token now. It will not be shown again.',
+      items: tokenStore.list(),
+    });
+  });
+
+  app.delete('/dashboard/api/tokens/:id', requireDashboard, (req, res) => {
+    const ok = tokenStore.revoke(req.params.id);
+    res.json({
+      ok,
+      message: ok ? 'Token revoked' : 'Cannot revoke the setup token',
+      items: tokenStore.list(),
+    });
   });
 
   app.get('/dashboard/api/proxies', requireDashboard, (_req, res) => {

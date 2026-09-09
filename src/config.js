@@ -53,6 +53,7 @@ export const config = {
   dashboardUser: process.env.DASHBOARD_USER || 'admin',
   dashboardPass: process.env.DASHBOARD_PASS || 'admin',
   sessionSecret: process.env.SESSION_SECRET || '',
+  serverIp: process.env.SERVER_IP || '',
   rateLimitMax: envInt('RATE_LIMIT_MAX', 30),
   rateLimitWindowMs: envInt('RATE_LIMIT_WINDOW_MS', 60000),
   proxyMinIntervalMs: envInt('PROXY_MIN_INTERVAL_MS', 2000),

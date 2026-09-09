@@ -137,6 +137,24 @@ env_get() {
   fi
 }
 
+detect_server_ip() {
+  local ip="" url
+  for url in "https://api.ipify.org" "https://ifconfig.me/ip" "https://icanhazip.com"; do
+    ip="$(curl -4 -fsS --max-time 5 "${url}" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [[ "${ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      echo "${ip}"
+      return
+    fi
+  done
+  ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}' || true)"
+  if [[ "${ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "${ip}"
+    return
+  fi
+  ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  echo "${ip:-127.0.0.1}"
+}
+
 prompt_dashboard() {
   local current_user current_pass
   current_user="$(env_get DASHBOARD_USER)"
@@ -166,7 +184,7 @@ prompt_dashboard() {
 }
 
 write_env() {
-  local token secret
+  local token secret server_ip
   token="$(env_get API_TOKEN)"
   secret="$(env_get SESSION_SECRET)"
   if [[ -z "${token}" ]]; then
@@ -179,6 +197,9 @@ write_env() {
     secret="$(openssl rand -hex 32)"
   fi
 
+  server_ip="$(detect_server_ip)"
+  log "detected server IP ${server_ip}"
+
   prompt_dashboard
 
   escape_env() {
@@ -188,6 +209,7 @@ write_env() {
   cat > "${ENV_FILE}" <<EOF
 PORT=6100
 HOST=0.0.0.0
+SERVER_IP="$(escape_env "${server_ip}")"
 API_TOKEN="$(escape_env "${token}")"
 MIN_WORKERS=2
 MAX_WORKERS=5
@@ -245,6 +267,35 @@ fix_perms() {
   chmod 750 "${INSTALL_DIR}"
 }
 
+open_firewall() {
+  local port
+  port="$(env_get PORT)"
+  port="${port:-6100}"
+  log "opening TCP port ${port} on host firewall"
+
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "Status: active"; then
+    ufw allow "${port}/tcp" || true
+    return
+  fi
+
+  if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state 2>/dev/null | grep -qi running; then
+    firewall-cmd --permanent --add-port="${port}/tcp" || true
+    firewall-cmd --reload || true
+    return
+  fi
+
+  if command -v iptables >/dev/null 2>&1; then
+    if ! iptables -C INPUT -p tcp --dport "${port}" -j ACCEPT 2>/dev/null; then
+      iptables -I INPUT -p tcp --dport "${port}" -j ACCEPT || true
+    fi
+    if command -v netfilter-persistent >/dev/null 2>&1; then
+      netfilter-persistent save || true
+    elif [[ -d /etc/iptables ]]; then
+      iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+    fi
+  fi
+}
+
 start_service() {
   log "enabling systemd service ${SERVICE_NAME}"
   systemctl daemon-reload
@@ -273,18 +324,21 @@ start_service() {
 }
 
 print_token() {
-  local token user pass port
+  local token user pass port ip
   token="$(env_get API_TOKEN)"
   user="$(env_get DASHBOARD_USER)"
   pass="$(env_get DASHBOARD_PASS)"
   port="$(env_get PORT)"
   port="${port:-6100}"
+  ip="$(env_get SERVER_IP)"
+  ip="${ip:-127.0.0.1}"
   echo
   echo "============================================================"
   echo " yahoo_validated is installed and active"
-  echo " API:       http://0.0.0.0:${port}/verify"
-  echo " Dashboard: http://SERVER_IP:${port}/dashboard"
-  echo " Health:    http://127.0.0.1:${port}/health"
+  echo " Detected IP: ${ip}"
+  echo " API:         http://${ip}:${port}/verify"
+  echo " Dashboard:   http://${ip}:${port}/dashboard"
+  echo " Local test:  http://127.0.0.1:${port}/health"
   echo
   echo " API TOKEN (required on every /verify request):"
   echo " ${token}"
@@ -294,10 +348,14 @@ print_token() {
   echo " pass: ${pass}"
   echo
   echo " Example:"
-  echo " curl -s -X POST http://127.0.0.1:${port}/verify \\"
+  echo " curl -s -X POST http://${ip}:${port}/verify \\"
   echo "   -H 'Authorization: Bearer ${token}' \\"
   echo "   -H 'Content-Type: application/json' \\"
   echo "   -d '{\"email\":\"someone@yahoo.com\"}'"
+  echo
+  echo " Chrome blocks port 6000; this service uses ${port}."
+  echo " If the dashboard fails from another PC, open ${port}/tcp in"
+  echo " the VPS/cloud security group as well as the host firewall."
   echo "============================================================"
 }
 
@@ -309,5 +367,6 @@ install_app
 write_env
 write_service
 fix_perms
+open_firewall
 start_service
 print_token

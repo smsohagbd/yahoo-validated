@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import path from 'node:path';
 import express from 'express';
 import { config } from './config.js';
@@ -6,17 +5,11 @@ import { setupDashboard } from './dashboard.js';
 import { initLogs, logger } from './logger.js';
 import { metrics } from './metrics.js';
 import { BrowserPool } from './pool.js';
-import { parseEmail } from './providers.js';
 import { proxyPool } from './proxy.js';
 import { RateLimiter, clientIp } from './rateLimit.js';
-import { envelope, send } from './respond.js';
-
-function tokensMatch(provided, expected) {
-  const a = Buffer.from(String(provided));
-  const b = Buffer.from(String(expected));
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
-}
+import { send } from './respond.js';
+import { tokenStore } from './tokens.js';
+import { runVerify } from './verify.js';
 
 const pool = new BrowserPool();
 const startedAt = Date.now();
@@ -36,8 +29,11 @@ function extractToken(req) {
   );
 }
 
-function finish(res, req, payload) {
-  const body = envelope(payload);
+function publicHost() {
+  return config.serverIp || '127.0.0.1';
+}
+
+function finish(res, req, body) {
   metrics.record({ ...body, ip: clientIp(req) });
   if (body.fail) {
     logger.warn('verify fail', {
@@ -57,6 +53,10 @@ function finish(res, req, payload) {
   return res.status(200).json(body);
 }
 
+function readEmail(req) {
+  return req.body?.email || req.body?.address || req.query.email || req.query.address || '';
+}
+
 function limitVerify(req, res, next) {
   const started = Date.now();
   const ip = clientIp(req);
@@ -68,9 +68,14 @@ function limitVerify(req, res, next) {
     return finish(res, req, {
       ok: false,
       fail: true,
+      validate: false,
       error: 'rate_limited',
       message: `Rate limit exceeded. Retry in ${gate.retryAfter}s.`,
+      retryable: true,
       email: readEmail(req) || null,
+      username: null,
+      provider: null,
+      proxy: null,
       ms: Date.now() - started,
     });
   }
@@ -78,83 +83,44 @@ function limitVerify(req, res, next) {
 }
 
 function requireToken(req, res, next) {
-  if (!config.apiToken) {
-    return finish(res, req, { ok: false, fail: true, error: 'server_misconfigured' });
+  if (!config.apiToken && tokenStore.list().length === 0) {
+    return finish(res, req, {
+      ok: false,
+      fail: true,
+      validate: false,
+      error: 'server_misconfigured',
+      message: 'API token is not configured on the server',
+      retryable: false,
+      email: null,
+      username: null,
+      provider: null,
+      proxy: null,
+      ms: 0,
+    });
   }
   const token = String(extractToken(req));
-  if (!token || !tokensMatch(token, config.apiToken)) {
-    return finish(res, req, { ok: false, fail: true, error: 'unauthorized' });
+  if (!tokenStore.isValid(token)) {
+    return finish(res, req, {
+      ok: false,
+      fail: true,
+      validate: false,
+      error: 'unauthorized',
+      message: 'Invalid or missing API token',
+      retryable: false,
+      email: null,
+      username: null,
+      provider: null,
+      proxy: null,
+      ms: 0,
+    });
   }
+  tokenStore.touch(token);
   return next();
 }
 
-function readEmail(req) {
-  return req.body?.email || req.body?.address || req.query.email || req.query.address || '';
-}
-
-function failCode(err) {
-  const code = err.code || 'check_failed';
-  if (code === 'blocked') return 'blocked';
-  if (code === 'queue_timeout') return 'queue_timeout';
-  if (code === 'timeout') return 'timeout';
-  if (code === 'proxy_failed') return 'proxy_failed';
-  return 'check_failed';
-}
-
 async function handleVerify(req, res) {
-  const started = Date.now();
-  const parsed = parseEmail(readEmail(req));
-
-  if (parsed.error === 'invalid_email') {
-    return finish(res, req, { ok: false, fail: true, error: 'invalid_email', ms: Date.now() - started });
-  }
-  if (parsed.error === 'unsupported_provider') {
-    return finish(res, req, {
-      ok: false,
-      fail: true,
-      error: 'unsupported_provider',
-      email: parsed.email,
-      username: parsed.username,
-      ms: Date.now() - started,
-    });
-  }
-  if (parsed.error === 'invalid_username') {
-    return finish(res, req, {
-      ok: true,
-      validate: false,
-      error: 'invalid_username',
-      email: parsed.email,
-      username: parsed.username,
-      provider: parsed.provider,
-      ms: Date.now() - started,
-    });
-  }
-
-  try {
-    const result = await pool.verify({ username: parsed.username, provider: parsed.provider });
-    return finish(res, req, {
-      ok: true,
-      validate: Boolean(result.taken),
-      error: result.invalid ? 'invalid_username' : null,
-      email: parsed.email,
-      username: parsed.username,
-      provider: parsed.provider,
-      proxy: result.proxy || null,
-      ms: Date.now() - started,
-    });
-  } catch (err) {
-    const error = failCode(err);
-    return finish(res, req, {
-      ok: false,
-      fail: true,
-      error,
-      message: error === 'check_failed' && err.message ? `Browser check failed: ${err.message}` : undefined,
-      email: parsed.email,
-      username: parsed.username,
-      provider: parsed.provider,
-      ms: Date.now() - started,
-    });
-  }
+  const body = await runVerify(pool, readEmail(req));
+  return finish(res, req, body);
 }
 
 const app = express();
@@ -162,7 +128,7 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '512kb' }));
 app.use(express.urlencoded({ extended: false, limit: '512kb' }));
 
-setupDashboard(app, { pool });
+setupDashboard(app, { pool, finish });
 
 app.get('/health', (_req, res) => {
   res.status(200).json({
@@ -171,13 +137,30 @@ app.get('/health', (_req, res) => {
     uptime_s: Math.round((Date.now() - startedAt) / 1000),
     ...pool.stats(),
     proxies: proxyPool.stats(),
+    public: {
+      ip: publicHost(),
+      verify: `http://${publicHost()}:${config.port}/verify`,
+      dashboard: `http://${publicHost()}:${config.port}/dashboard`,
+    },
   });
 });
 
 app.all('/verify', limitVerify, requireToken, (req, res) => {
   handleVerify(req, res).catch((err) => {
     logger.error('unhandled verify error', { error: err.message });
-    finish(res, req, { ok: false, fail: true, error: 'check_failed', message: err.message });
+    finish(res, req, {
+      ok: false,
+      fail: true,
+      validate: false,
+      error: 'check_failed',
+      message: err.message,
+      retryable: true,
+      email: null,
+      username: null,
+      provider: null,
+      proxy: null,
+      ms: 0,
+    });
   });
 });
 
@@ -217,6 +200,7 @@ async function main() {
 
   initLogs();
   metrics.load();
+  tokenStore.load();
   proxyPool.load();
   proxyPool.onChange(() => {
     pool.recycleAll().catch((err) => logger.warn('recycle after proxy change failed', { error: err.message }));
@@ -225,8 +209,9 @@ async function main() {
   await pool.start();
   server = app.listen(config.port, config.host, () => {
     logger.info('api listening', {
-      verify: `http://${config.host}:${config.port}/verify`,
-      dashboard: `http://${config.host}:${config.port}/dashboard`,
+      bind: `${config.host}:${config.port}`,
+      verify: `http://${publicHost()}:${config.port}/verify`,
+      dashboard: `http://${publicHost()}:${config.port}/dashboard`,
     });
   });
 }

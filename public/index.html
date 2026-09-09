@@ -55,7 +55,8 @@
     textarea, input, select { width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; }
     textarea { min-height: 92px; resize: vertical; }
     .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
-    .btn { background: var(--accent); color: white; border: 0; border-radius: 8px; padding: 9px 14px; cursor: pointer; font-weight: 600; }
+    .btn:disabled { opacity: .55; cursor: not-allowed; }
+    .copy { font-family: ui-monospace, Consolas, monospace; background: #0c1016; padding: 10px; border-radius: 8px; word-break: break-all; }
     .btn:hover { background: var(--accent-2); }
     .btn-danger { background: #a33b48; }
     .hint { color: var(--muted); font-size: 12px; margin: 6px 0 10px; }
@@ -106,6 +107,47 @@
       <div class="card"><div class="k">Workers / busy / queue</div><div class="v" id="mPool">0 / 0 / 0</div></div>
       <div class="card"><div class="k">Proxies enabled</div><div class="v" id="mProx">0</div></div>
       <div class="card"><div class="k">API rate limit</div><div class="v" id="mRate">30 / min</div></div>
+    </div>
+
+    <div class="grid" style="margin-bottom:12px">
+      <section class="panel">
+        <h2>Test addresses</h2>
+        <p class="hint">Single check, or paste many Yahoo/AOL addresses (one per line, comma, or space). Bulk max 50.</p>
+        <div class="row">
+          <input id="singleEmail" placeholder="someone@yahoo.com" style="flex:1;min-width:220px" />
+          <button class="btn" id="singleBtn" type="button">Test one</button>
+        </div>
+        <textarea id="bulkEmails" placeholder="user1@yahoo.com&#10;user2@aol.com&#10;user3@ymail.com"></textarea>
+        <div class="row">
+          <button class="btn" id="bulkBtn" type="button">Test bulk</button>
+          <span class="mini" id="testStatus"></span>
+        </div>
+        <div id="testErr" class="err"></div>
+        <div style="overflow:auto;max-height:260px;margin-top:8px">
+          <table>
+            <thead><tr><th>Email</th><th>Result</th><th>Detail</th><th>ms</th></tr></thead>
+            <tbody id="testBody"><tr><td colspan="4" class="mini">No test yet</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel">
+        <h2>API tokens</h2>
+        <p class="hint">Create tokens for Postman or your other script. The full token is shown only once.</p>
+        <div class="row">
+          <input id="tokenName" placeholder="name (optional)" style="max-width:180px" />
+          <button class="btn" id="createTokenBtn" type="button">Create token</button>
+        </div>
+        <div id="newTokenBox" class="hidden">
+          <div class="mini">Copy now — it will not be shown again</div>
+          <div class="copy" id="newTokenValue"></div>
+        </div>
+        <div style="overflow:auto;max-height:260px;margin-top:8px">
+          <table>
+            <thead><tr><th>Name</th><th>Prefix</th><th></th></tr></thead>
+            <tbody id="tokenBody"></tbody>
+          </table>
+        </div>
+      </section>
     </div>
 
     <div class="grid">
@@ -186,10 +228,11 @@
     }
 
     async function refresh() {
-      const [overview, logs, proxies] = await Promise.all([
+      const [overview, logs, proxies, tokens] = await Promise.all([
         api('/dashboard/api/overview'),
         api('/dashboard/api/logs?limit=180&level=' + encodeURIComponent($('logLevel').value)),
         api('/dashboard/api/proxies'),
+        api('/dashboard/api/tokens'),
       ]);
       if (!overview.ok) { showApp(false); return; }
       const m = overview.metrics;
@@ -200,7 +243,10 @@
       $('mPool').textContent = `${overview.pool.workers} / ${overview.pool.busy} / ${overview.pool.queue}`;
       $('mProx').textContent = `${overview.proxies.enabled} / ${overview.proxies.total}`;
       $('mRate').textContent = `${overview.rateLimit.max} / min`;
-      $('subline').textContent = `Workers ready · ${overview.pool.workers} browsers · ${overview.proxies.rotation} proxy rotation`;
+      const pub = overview.public || {};
+      $('subline').textContent = pub.verify
+        ? `${pub.verify} · ${overview.pool.workers} browsers`
+        : `Workers ready · ${overview.pool.workers} browsers`;
 
       $('recentBody').innerHTML = (m.recent || []).slice(0, 40).map((row) => `
         <tr>
@@ -228,9 +274,28 @@
         </tr>
       `).join('') || '<tr><td colspan="3" class="mini">No proxies — traffic uses the server IP</td></tr>';
 
+      $('tokenBody').innerHTML = (tokens.items || []).map((t) => `
+        <tr>
+          <td>${t.name}${t.locked ? ' <span class="mini">(setup)</span>' : ''}</td>
+          <td>${t.prefix}</td>
+          <td>${t.locked ? '<span class="mini">locked</span>' : `<button class="ghost btn-danger" data-token-del="${t.id}">Revoke</button>`}</td>
+        </tr>
+      `).join('');
+
       $('logs').innerHTML = (logs.logs || []).map((row) =>
         `<div class="log-${row.level}">${row.ts} [${row.level}] ${row.msg}${row.error ? ' — ' + row.error : ''}${row.email ? ' · ' + row.email : ''}</div>`
       ).join('') || '<div class="mini">No logs</div>';
+    }
+
+    function renderTestRows(rows) {
+      $('testBody').innerHTML = rows.map((row) => `
+        <tr>
+          <td>${row.email || '-'}</td>
+          <td>${tag(row)}</td>
+          <td>${row.message || row.error || '-'}</td>
+          <td>${row.ms || 0}</td>
+        </tr>
+      `).join('');
     }
 
     $('loginForm').addEventListener('submit', async (e) => {
@@ -292,6 +357,75 @@
     });
 
     $('logLevel').addEventListener('change', refresh);
+
+    $('singleEmail').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        $('singleBtn').click();
+      }
+    });
+
+    $('singleBtn').addEventListener('click', async () => {
+      $('testErr').textContent = '';
+      $('testStatus').textContent = 'Checking…';
+      $('singleBtn').disabled = true;
+      try {
+        const out = await api('/dashboard/api/test', {
+          method: 'POST',
+          body: JSON.stringify({ email: $('singleEmail').value }),
+        });
+        renderTestRows([out]);
+        $('testStatus').textContent = out.message || 'Done';
+        refresh();
+      } catch (err) {
+        $('testErr').textContent = err.message || 'Test failed';
+      } finally {
+        $('singleBtn').disabled = false;
+      }
+    });
+
+    $('bulkBtn').addEventListener('click', async () => {
+      $('testErr').textContent = '';
+      $('testStatus').textContent = 'Bulk running…';
+      $('bulkBtn').disabled = true;
+      try {
+        const out = await api('/dashboard/api/test/bulk', {
+          method: 'POST',
+          body: JSON.stringify({ emails: $('bulkEmails').value }),
+        });
+        if (!out.ok) {
+          $('testErr').textContent = out.message || 'Bulk failed';
+          return;
+        }
+        renderTestRows(out.results || []);
+        $('testStatus').textContent = `Done · ${out.count} checked`;
+        refresh();
+      } catch (err) {
+        $('testErr').textContent = err.message || 'Bulk failed';
+      } finally {
+        $('bulkBtn').disabled = false;
+      }
+    });
+
+    $('createTokenBtn').addEventListener('click', async () => {
+      const out = await api('/dashboard/api/tokens', {
+        method: 'POST',
+        body: JSON.stringify({ name: $('tokenName').value || 'api' }),
+      });
+      if (out.token) {
+        $('newTokenBox').classList.remove('hidden');
+        $('newTokenValue').textContent = out.token;
+        $('tokenName').value = '';
+      }
+      refresh();
+    });
+
+    $('tokenBody').addEventListener('click', async (e) => {
+      const id = e.target.dataset.tokenDel;
+      if (!id) return;
+      await fetch('/dashboard/api/tokens/' + id, { method: 'DELETE', credentials: 'same-origin' });
+      refresh();
+    });
 
     (async function boot() {
       const me = await api('/dashboard/api/me');
