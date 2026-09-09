@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Yahoo Validated</title>
+  <style>
+    :root {
+      --bg: #10141a;
+      --panel: #181e27;
+      --panel-2: #1f2632;
+      --line: #2b3545;
+      --text: #e9eef5;
+      --muted: #8c9bb0;
+      --accent: #6b5cff;
+      --accent-2: #8b7dff;
+      --ok: #3dd68c;
+      --warn: #f5c451;
+      --bad: #ff6b7a;
+      --shadow: 0 12px 40px rgba(0, 0, 0, .28);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+    a { color: var(--accent-2); }
+    button, input, textarea, select { font: inherit; }
+    .page { max-width: 1180px; margin: 0 auto; padding: 24px; }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 22px; }
+    .brand { display: flex; flex-direction: column; gap: 2px; }
+    .brand b { font-size: 20px; letter-spacing: .2px; }
+    .brand span { color: var(--muted); font-size: 12px; }
+    .ghost { background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+    .ghost:hover { border-color: var(--accent); }
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
+    .card .k { color: var(--muted); font-size: 12px; }
+    .card .v { font-size: 26px; font-weight: 700; margin-top: 4px; }
+    .ok { color: var(--ok); }
+    .bad { color: var(--bad); }
+    .warn { color: var(--warn); }
+    .grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 12px; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: var(--shadow); }
+    .panel h2 { margin: 0 0 12px; font-size: 15px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 12px; }
+    th { color: var(--muted); font-weight: 600; }
+    .tag { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: 11px; }
+    .tag-ok { background: rgba(61, 214, 140, .15); color: var(--ok); }
+    .tag-no { background: rgba(139, 155, 176, .15); color: var(--muted); }
+    .tag-fail { background: rgba(255, 107, 122, .15); color: var(--bad); }
+    .logs { font-family: ui-monospace, Consolas, monospace; font-size: 12px; max-height: 280px; overflow: auto; background: #0c1016; border-radius: 8px; padding: 10px; }
+    .log-error { color: var(--bad); }
+    .log-warn { color: var(--warn); }
+    .log-info { color: #b8c4d6; }
+    .log-debug { color: #6f7d90; }
+    textarea, input, select { width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; }
+    textarea { min-height: 92px; resize: vertical; }
+    .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+    .btn { background: var(--accent); color: white; border: 0; border-radius: 8px; padding: 9px 14px; cursor: pointer; font-weight: 600; }
+    .btn:hover { background: var(--accent-2); }
+    .btn-danger { background: #a33b48; }
+    .hint { color: var(--muted); font-size: 12px; margin: 6px 0 10px; }
+    .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .login { width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 28px; box-shadow: var(--shadow); }
+    .login h1 { margin: 0 0 8px; font-size: 22px; }
+    .login p { color: var(--muted); margin: 0 0 18px; }
+    .login label { display: block; margin: 10px 0 6px; color: var(--muted); font-size: 12px; }
+    .err { color: var(--bad); min-height: 18px; font-size: 13px; margin-top: 8px; }
+    .hidden { display: none !important; }
+    .mini { font-size: 12px; color: var(--muted); }
+    @media (max-width: 980px) {
+      .cards, .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div id="loginView" class="login-wrap">
+    <form class="login" id="loginForm">
+      <h1>Yahoo Validated</h1>
+      <p>Sign in to track checks, logs, and proxies.</p>
+      <label>Username</label>
+      <input id="user" autocomplete="username" />
+      <label>Password</label>
+      <input id="pass" type="password" autocomplete="current-password" />
+      <div class="err" id="loginErr"></div>
+      <button class="btn" style="width:100%;margin-top:12px" type="submit">Sign in</button>
+    </form>
+  </div>
+
+  <div id="appView" class="page hidden">
+    <div class="top">
+      <div class="brand">
+        <b>Yahoo Validated</b>
+        <span id="subline">Live tracker</span>
+      </div>
+      <button class="ghost" id="logoutBtn" type="button">Sign out</button>
+    </div>
+
+    <div class="cards">
+      <div class="card"><div class="k">Total checks</div><div class="v" id="mTotal">0</div></div>
+      <div class="card"><div class="k">Exists</div><div class="v ok" id="mTaken">0</div></div>
+      <div class="card"><div class="k">Available</div><div class="v" id="mAvail">0</div></div>
+      <div class="card"><div class="k">Failed</div><div class="v bad" id="mFail">0</div></div>
+    </div>
+
+    <div class="cards" style="grid-template-columns: repeat(3, 1fr)">
+      <div class="card"><div class="k">Workers / busy / queue</div><div class="v" id="mPool">0 / 0 / 0</div></div>
+      <div class="card"><div class="k">Proxies enabled</div><div class="v" id="mProx">0</div></div>
+      <div class="card"><div class="k">API rate limit</div><div class="v" id="mRate">30 / min</div></div>
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>Recent checks</h2>
+        <div style="overflow:auto;max-height:340px">
+          <table>
+            <thead>
+              <tr><th>Time</th><th>Email</th><th>Result</th><th>Detail</th><th>ms</th></tr>
+            </thead>
+            <tbody id="recentBody"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel">
+        <h2>Proxies</h2>
+        <p class="hint">One per line. HTTP, HTTPS, SOCKS5, rotating gateways, user:pass@host:port, or host:port:user:pass. Prefix <code>rotate:</code> for rotational.</p>
+        <textarea id="proxyLines" placeholder="rotate:http://user:pass@gate.provider.com:7777&#10;socks5://user:pass@1.2.3.4:1080&#10;1.2.3.4:8080:user:pass"></textarea>
+        <div class="row">
+          <label class="mini"><input type="checkbox" id="proxyRotate" /> Mark all as rotational</label>
+          <input id="proxyLabel" placeholder="label (optional)" style="max-width:180px" />
+          <button class="btn" id="addProxyBtn" type="button">Add proxies</button>
+        </div>
+        <div class="row">
+          <span class="mini">Pick next proxy</span>
+          <select id="rotationMode" style="max-width:160px">
+            <option value="round_robin">round robin</option>
+            <option value="random">random</option>
+          </select>
+        </div>
+        <div id="proxyErr" class="err"></div>
+        <div style="overflow:auto;max-height:220px">
+          <table>
+            <thead><tr><th>Proxy</th><th>OK/Fail</th><th></th></tr></thead>
+            <tbody id="proxyBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel" style="margin-top:12px">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">Logs</h2>
+        <select id="logLevel" style="max-width:140px">
+          <option value="all">all</option>
+          <option value="error">error</option>
+          <option value="warn">warn</option>
+          <option value="info">info</option>
+        </select>
+      </div>
+      <div class="logs" id="logs"></div>
+    </section>
+  </div>
+
+  <script>
+    const loginView = document.getElementById('loginView');
+    const appView = document.getElementById('appView');
+    const $ = (id) => document.getElementById(id);
+
+    async function api(url, opt = {}) {
+      const res = await fetch(url, {
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', ...(opt.headers || {}) },
+        ...opt,
+      });
+      return res.json();
+    }
+
+    function showApp(on) {
+      loginView.classList.toggle('hidden', on);
+      appView.classList.toggle('hidden', !on);
+    }
+
+    function tag(row) {
+      if (row.fail) return '<span class="tag tag-fail">fail</span>';
+      if (row.validate) return '<span class="tag tag-ok">exists</span>';
+      return '<span class="tag tag-no">available</span>';
+    }
+
+    async function refresh() {
+      const [overview, logs, proxies] = await Promise.all([
+        api('/dashboard/api/overview'),
+        api('/dashboard/api/logs?limit=180&level=' + encodeURIComponent($('logLevel').value)),
+        api('/dashboard/api/proxies'),
+      ]);
+      if (!overview.ok) { showApp(false); return; }
+      const m = overview.metrics;
+      $('mTotal').textContent = m.total;
+      $('mTaken').textContent = m.taken;
+      $('mAvail').textContent = m.available;
+      $('mFail').textContent = m.failed;
+      $('mPool').textContent = `${overview.pool.workers} / ${overview.pool.busy} / ${overview.pool.queue}`;
+      $('mProx').textContent = `${overview.proxies.enabled} / ${overview.proxies.total}`;
+      $('mRate').textContent = `${overview.rateLimit.max} / min`;
+      $('subline').textContent = `Workers ready · ${overview.pool.workers} browsers · ${overview.proxies.rotation} proxy rotation`;
+
+      $('recentBody').innerHTML = (m.recent || []).slice(0, 40).map((row) => `
+        <tr>
+          <td>${(row.ts || '').replace('T', ' ').slice(11, 19)}</td>
+          <td>${row.email || '-'}</td>
+          <td>${tag(row)}</td>
+          <td>${row.message || row.error || '-'}${row.proxy ? `<div class="mini">${row.proxy}</div>` : ''}</td>
+          <td>${row.ms || 0}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="5" class="mini">No checks yet</td></tr>';
+
+      $('rotationMode').value = proxies.rotation || 'round_robin';
+      $('proxyBody').innerHTML = (proxies.items || []).map((p) => `
+        <tr>
+          <td>
+            <div>${p.display}</div>
+            <div class="mini">${p.rotational ? 'rotational' : 'sticky'} · ${p.enabled ? 'on' : 'off'} ${p.label ? '· ' + p.label : ''}</div>
+          </td>
+          <td>${p.success} / ${p.fail}</td>
+          <td>
+            <button class="ghost" data-toggle="${p.id}">${p.enabled ? 'Disable' : 'Enable'}</button>
+            <button class="ghost" data-rot="${p.id}">${p.rotational ? 'Sticky' : 'Rotate'}</button>
+            <button class="ghost btn-danger" data-del="${p.id}">Delete</button>
+          </td>
+        </tr>
+      `).join('') || '<tr><td colspan="3" class="mini">No proxies — traffic uses the server IP</td></tr>';
+
+      $('logs').innerHTML = (logs.logs || []).map((row) =>
+        `<div class="log-${row.level}">${row.ts} [${row.level}] ${row.msg}${row.error ? ' — ' + row.error : ''}${row.email ? ' · ' + row.email : ''}</div>`
+      ).join('') || '<div class="mini">No logs</div>';
+    }
+
+    $('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      $('loginErr').textContent = '';
+      const out = await api('/dashboard/api/login', {
+        method: 'POST',
+        body: JSON.stringify({ username: $('user').value, password: $('pass').value }),
+      });
+      if (!out.ok) {
+        $('loginErr').textContent = out.message || 'Login failed';
+        return;
+      }
+      showApp(true);
+      refresh();
+    });
+
+    $('logoutBtn').addEventListener('click', async () => {
+      await api('/dashboard/api/logout', { method: 'POST' });
+      showApp(false);
+    });
+
+    $('addProxyBtn').addEventListener('click', async () => {
+      $('proxyErr').textContent = '';
+      const out = await api('/dashboard/api/proxies', {
+        method: 'POST',
+        body: JSON.stringify({
+          lines: $('proxyLines').value,
+          rotational: $('proxyRotate').checked,
+          label: $('proxyLabel').value,
+        }),
+      });
+      if (out.errors && out.errors.length) {
+        $('proxyErr').textContent = out.errors.map((x) => x.error).join('; ');
+      }
+      $('proxyLines').value = '';
+      refresh();
+    });
+
+    $('rotationMode').addEventListener('change', async () => {
+      await api('/dashboard/api/proxies/rotation', {
+        method: 'POST',
+        body: JSON.stringify({ rotation: $('rotationMode').value }),
+      });
+    });
+
+    $('proxyBody').addEventListener('click', async (e) => {
+      const t = e.target;
+      if (t.dataset.del) {
+        await fetch('/dashboard/api/proxies/' + t.dataset.del, { method: 'DELETE', credentials: 'same-origin' });
+      } else if (t.dataset.toggle) {
+        const on = t.textContent === 'Enable';
+        await api('/dashboard/api/proxies/' + t.dataset.toggle, { method: 'POST', body: JSON.stringify({ enabled: on }) });
+      } else if (t.dataset.rot) {
+        const rotational = t.textContent === 'Rotate';
+        await api('/dashboard/api/proxies/' + t.dataset.rot, { method: 'POST', body: JSON.stringify({ rotational }) });
+      } else return;
+      refresh();
+    });
+
+    $('logLevel').addEventListener('change', refresh);
+
+    (async function boot() {
+      const me = await api('/dashboard/api/me');
+      showApp(Boolean(me.ok && me.user));
+      if (me.ok && me.user) await refresh();
+      setInterval(() => { if (!appView.classList.contains('hidden')) refresh(); }, 4000);
+    })();
+  </script>
+</body>
+</html>

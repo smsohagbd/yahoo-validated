@@ -1,0 +1,11 @@
+node_modules/
+.env
+.ms-playwright/
+playwright-report/
+test-results/
+*.log
+.DS_Store
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep

@@ -1,0 +1,22 @@
+[Unit]
+Description=Yahoo Validated email checker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=yahoo_validated
+Group=yahoo_validated
+WorkingDirectory=/opt/yahoo_validated
+EnvironmentFile=-/etc/yahoo_validated.env
+ExecStart=/usr/bin/node /opt/yahoo_validated/src/server.js
+Restart=always
+RestartSec=4
+TimeoutStopSec=30
+KillSignal=SIGTERM
+LimitNOFILE=65535
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
