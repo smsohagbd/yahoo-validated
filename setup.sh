@@ -186,7 +186,7 @@ write_env() {
   }
 
   cat > "${ENV_FILE}" <<EOF
-PORT=6000
+PORT=6100
 HOST=0.0.0.0
 API_TOKEN="$(escape_env "${token}")"
 MIN_WORKERS=2
@@ -251,10 +251,12 @@ start_service() {
   systemctl enable "${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"
 
-  local ready=0
-  local i
+  local listen_port ready=0 i
+  listen_port="$(env_get PORT)"
+  listen_port="${listen_port:-6100}"
+
   for i in $(seq 1 45); do
-    if curl -sf http://127.0.0.1:6000/health >/dev/null 2>&1; then
+    if curl -sf "http://127.0.0.1:${listen_port}/health" >/dev/null 2>&1; then
       ready=1
       break
     fi
@@ -271,16 +273,18 @@ start_service() {
 }
 
 print_token() {
-  local token user pass
+  local token user pass port
   token="$(env_get API_TOKEN)"
   user="$(env_get DASHBOARD_USER)"
   pass="$(env_get DASHBOARD_PASS)"
+  port="$(env_get PORT)"
+  port="${port:-6100}"
   echo
   echo "============================================================"
   echo " yahoo_validated is installed and active"
-  echo " API:       http://0.0.0.0:6000/verify"
-  echo " Dashboard: http://SERVER_IP:6000/dashboard"
-  echo " Health:    http://127.0.0.1:6000/health"
+  echo " API:       http://0.0.0.0:${port}/verify"
+  echo " Dashboard: http://SERVER_IP:${port}/dashboard"
+  echo " Health:    http://127.0.0.1:${port}/health"
   echo
   echo " API TOKEN (required on every /verify request):"
   echo " ${token}"
@@ -290,7 +294,7 @@ print_token() {
   echo " pass: ${pass}"
   echo
   echo " Example:"
-  echo " curl -s -X POST http://127.0.0.1:6000/verify \\"
+  echo " curl -s -X POST http://127.0.0.1:${port}/verify \\"
   echo "   -H 'Authorization: Bearer ${token}' \\"
   echo "   -H 'Content-Type: application/json' \\"
   echo "   -d '{\"email\":\"someone@yahoo.com\"}'"

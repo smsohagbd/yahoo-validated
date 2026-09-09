@@ -40,7 +40,7 @@ export { rootDir };
 
 export const config = {
   host: process.env.HOST || '0.0.0.0',
-  port: envInt('PORT', 6000),
+  port: envInt('PORT', 6100),
   apiToken: process.env.API_TOKEN || '',
   minWorkers: Math.max(1, envInt('MIN_WORKERS', 2)),
   maxWorkers: Math.max(1, envInt('MAX_WORKERS', 5)),
