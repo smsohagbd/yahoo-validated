@@ -30,12 +30,32 @@ detect_pkg() {
 
 PKG="$(detect_pkg)"
 
+fix_broken_apt_ppas() {
+  shopt -s nullglob
+  local f
+  for f in /etc/apt/sources.list.d/*.list; do
+    if grep -qiE 'ppa.launchpadcontent.net/certbot/certbot' "${f}" 2>/dev/null; then
+      log "disabling broken PPA ${f} (no Release file)"
+      mv "${f}" "${f}.disabled-by-yahoo-validated"
+    fi
+  done
+  shopt -u nullglob
+}
+
+apt_update() {
+  if apt-get update -y; then
+    return 0
+  fi
+  log "apt-get update had errors; continuing with cached package lists"
+}
+
 install_base() {
   log "installing base packages"
   case "${PKG}" in
     apt)
       export DEBIAN_FRONTEND=noninteractive
-      apt-get update -y
+      fix_broken_apt_ppas
+      apt_update
       apt-get install -y ca-certificates curl gnupg git openssl
       ;;
     dnf)
@@ -155,32 +175,67 @@ detect_server_ip() {
   echo "${ip:-127.0.0.1}"
 }
 
-prompt_dashboard() {
-  local current_user current_pass
-  current_user="$(env_get DASHBOARD_USER)"
-  current_pass="$(env_get DASHBOARD_PASS)"
-  current_user="${current_user:-admin}"
-  current_pass="${current_pass:-admin}"
+configure_login() {
+  DASH_USER="$(env_get DASHBOARD_USER)"
+  DASH_PASS="$(env_get DASHBOARD_PASS)"
+  DASH_USER="${DASH_USER:-admin}"
+  DASH_PASS="${DASH_PASS:-admin}"
 
-  DASH_USER="${current_user}"
-  DASH_PASS="${current_pass}"
-
-  if [[ -t 0 ]]; then
-    echo
-    echo "Dashboard login (press Enter to keep the default)"
-    local input_user input_pass
-    read -r -p "Dashboard username [${current_user}]: " input_user || true
-    if [[ -n "${input_user}" ]]; then
-      DASH_USER="${input_user}"
-    fi
-    read -r -s -p "Dashboard password [${current_pass}]: " input_pass || true
-    echo
-    if [[ -n "${input_pass}" ]]; then
-      DASH_PASS="${input_pass}"
-    fi
+  local tty=""
+  if [[ -r /dev/tty ]]; then
+    tty="/dev/tty"
+  elif [[ -t 0 ]]; then
+    tty=""
   else
-    log "non-interactive install: dashboard user=${DASH_USER}"
+    log "no terminal; dashboard login kept as user=${DASH_USER}"
+    return
   fi
+
+  echo
+  echo "============================================================"
+  echo " Dashboard login"
+  echo " This username and password are required to open the dashboard."
+  echo "============================================================"
+
+  local confirm=""
+  while true; do
+    if [[ -n "${tty}" ]]; then
+      read -r -p "Username: " DASH_USER < "${tty}" || true
+    else
+      read -r -p "Username: " DASH_USER || true
+    fi
+    DASH_USER="${DASH_USER//$'\r'/}"
+    if [[ -z "${DASH_USER}" ]]; then
+      echo "Username is required."
+      continue
+    fi
+    break
+  done
+
+  while true; do
+    if [[ -n "${tty}" ]]; then
+      read -r -s -p "Password: " DASH_PASS < "${tty}" || true
+      echo
+      read -r -s -p "Confirm password: " confirm < "${tty}" || true
+      echo
+    else
+      read -r -s -p "Password: " DASH_PASS || true
+      echo
+      read -r -s -p "Confirm password: " confirm || true
+      echo
+    fi
+    DASH_PASS="${DASH_PASS//$'\r'/}"
+    confirm="${confirm//$'\r'/}"
+    if [[ -z "${DASH_PASS}" ]]; then
+      echo "Password is required."
+      continue
+    fi
+    if [[ "${DASH_PASS}" != "${confirm}" ]]; then
+      echo "Passwords do not match. Try again."
+      continue
+    fi
+    break
+  done
 }
 
 write_env() {
@@ -200,7 +255,10 @@ write_env() {
   server_ip="$(detect_server_ip)"
   log "detected server IP ${server_ip}"
 
-  prompt_dashboard
+  DASH_USER="${DASH_USER:-$(env_get DASHBOARD_USER)}"
+  DASH_PASS="${DASH_PASS:-$(env_get DASHBOARD_PASS)}"
+  DASH_USER="${DASH_USER:-admin}"
+  DASH_PASS="${DASH_PASS:-admin}"
 
   escape_env() {
     printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
@@ -369,4 +427,8 @@ write_service
 fix_perms
 open_firewall
 start_service
+configure_login
+write_env
+log "saving dashboard login and restarting service"
+systemctl restart "${SERVICE_NAME}"
 print_token

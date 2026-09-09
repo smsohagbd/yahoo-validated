@@ -22,7 +22,7 @@ sudo bash setup.sh
 4. Runs `npm install` and Playwright Chromium (headless).
 5. Detects the **public server IP** (ipify / ifconfig.me, then local route).
 6. Writes `/etc/yahoo_validated.env` — keeps an existing API token on re-run.
-7. Asks dashboard username/password (Enter = `admin` / `admin`).
+7. After the service is running, **asks for dashboard username, password, and confirm password** (required — this is the dashboard login).
 8. Opens TCP **6100** on ufw / firewalld / iptables.
 9. Enables systemd unit `yahoo_validated` and waits until `/health` answers.
 10. Prints the real IP URLs, token, and dashboard login.

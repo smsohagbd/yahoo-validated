@@ -7,7 +7,7 @@ Headless Yahoo / AOL address checker. Playwright workers open the official creat
 | API | `http://SERVER_IP:6100/verify` |
 | Dashboard | `http://SERVER_IP:6100/dashboard` |
 | HTTP status | Always **200** — read JSON `fail` and `validate` |
-| Default login | `admin` / `admin` if you press Enter at install |
+| Dashboard login | Asked at the end of `setup.sh` (username + password + confirm) |
 
 Full install notes: **[SETUP.md](SETUP.md)**
 
